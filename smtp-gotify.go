@@ -24,11 +24,12 @@ type SmtpConfig struct {
 	smtpPrimaryHost string
 }
 
-type TelegramConfig struct {
-	telegramChatIds   string
-	telegramBotToken  string
-	telegramApiPrefix string
-	messageTemplate   string
+type GofityConfig struct {
+	gotifyPriority  string
+	gotifyAPIToken  string
+	gotifyURL       string
+	titleTemplate   string
+	messageTemplate string
 }
 
 func GetHostname() string {
@@ -41,29 +42,30 @@ func GetHostname() string {
 
 func main() {
 	app := cli.NewApp()
-	app.Name = "smtp_to_telegram"
+	app.Name = "smtp-gotify"
 	app.Usage = "A small program which listens for SMTP and sends " +
-		"all incoming Email messages to Telegram."
+		"all incoming Email messages to your Gotify server."
 	app.Version = "UNKNOWN_RELEASE"
 	app.Action = func(c *cli.Context) error {
 		// Required flags are not supported, see https://github.com/urfave/cli/issues/85
-		if !c.IsSet("telegram-chat-ids") {
-			return cli.NewExitError("Telegram chat ids are missing. See `--help`", 2)
+		if !c.IsSet("gotify-url") {
+			return cli.NewExitError("Gotify URL is missing. See `--help`", 2)
 		}
-		if !c.IsSet("telegram-bot-token") {
-			return cli.NewExitError("Telegram bot token is missing. See `--help`", 2)
+		if !c.IsSet("gotify-api-token") {
+			return cli.NewExitError("Gotify API token is missing. See `--help`", 2)
 		}
 		smtpConfig := &SmtpConfig{
 			smtpListen:      c.String("smtp-listen"),
 			smtpPrimaryHost: c.String("smtp-primary-host"),
 		}
-		telegramConfig := &TelegramConfig{
-			telegramChatIds:   c.String("telegram-chat-ids"),
-			telegramBotToken:  c.String("telegram-bot-token"),
-			telegramApiPrefix: c.String("telegram-api-prefix"),
-			messageTemplate:   c.String("message-template"),
+		gotifyConfig := &GofityConfig{
+			gotifyPriority:  c.String("gotify-priority"),
+			gotifyAPIToken:  c.String("gotify-api-token"),
+			gotifyURL:       c.String("gotify-url"),
+			titleTemplate:   c.String("title-template"),
+			messageTemplate: c.String("message-template"),
 		}
-		d, err := SmtpStart(smtpConfig, telegramConfig)
+		d, err := SmtpStart(smtpConfig, gotifyConfig)
 		if err != nil {
 			panic(fmt.Sprintf("start error: %s", err))
 		}
@@ -75,35 +77,41 @@ func main() {
 			Name:    "smtp-listen",
 			Value:   "127.0.0.1:2525",
 			Usage:   "SMTP: TCP address to listen to",
-			EnvVars: []string{"ST_SMTP_LISTEN"},
+			EnvVars: []string{"SG_SMTP_LISTEN"},
 		},
 		&cli.StringFlag{
 			Name:    "smtp-primary-host",
 			Value:   GetHostname(),
 			Usage:   "SMTP: primary host",
-			EnvVars: []string{"ST_SMTP_PRIMARY_HOST"},
+			EnvVars: []string{"SG_SMTP_PRIMARY_HOST"},
 		},
 		&cli.StringFlag{
-			Name:    "telegram-chat-ids",
-			Usage:   "Telegram: comma-separated list of chat ids",
-			EnvVars: []string{"ST_TELEGRAM_CHAT_IDS"},
+			Name:    "gotify-priority",
+			Value:   "5",
+			Usage:   "Gotify message priority",
+			EnvVars: []string{"GOFITY_PRIORITY"},
 		},
 		&cli.StringFlag{
-			Name:    "telegram-bot-token",
-			Usage:   "Telegram: bot token",
-			EnvVars: []string{"ST_TELEGRAM_BOT_TOKEN"},
+			Name:    "gotify-api-token",
+			Usage:   "Gotify API token",
+			EnvVars: []string{"GOTIFY_TOKEN"},
 		},
 		&cli.StringFlag{
-			Name:    "telegram-api-prefix",
-			Usage:   "Telegram: API url prefix",
-			Value:   "https://api.telegram.org/",
-			EnvVars: []string{"ST_TELEGRAM_API_PREFIX"},
+			Name:    "gotify-url",
+			Usage:   "Gotify server URL",
+			EnvVars: []string{"GOTIFY_URL"},
+		},
+		&cli.StringFlag{
+			Name:    "title-template",
+			Usage:   "Gotify notification title template",
+			Value:   "{subject}",
+			EnvVars: []string{"GOTIFY_TITLE_TEMPLATE"},
 		},
 		&cli.StringFlag{
 			Name:    "message-template",
-			Usage:   "Telegram message template",
-			Value:   "From: {from}\\nTo: {to}\\nSubject: {subject}\\n\\n{body}",
-			EnvVars: []string{"ST_TELEGRAM_MESSAGE_TEMPLATE"},
+			Usage:   "Gotify notification message template",
+			Value:   "{body}",
+			EnvVars: []string{"GOTIFY_MESSAGE_TEMPLATE"},
 		},
 	}
 	err := app.Run(os.Args)
@@ -113,7 +121,7 @@ func main() {
 }
 
 func SmtpStart(
-	smtpConfig *SmtpConfig, telegramConfig *TelegramConfig) (guerrilla.Daemon, error) {
+	smtpConfig *SmtpConfig, gotifyConfig *GofityConfig) (guerrilla.Daemon, error) {
 
 	cfg := &guerrilla.AppConfig{LogFile: log.OutputStdout.String()}
 
@@ -127,21 +135,21 @@ func SmtpStart(
 
 	bcfg := backends.BackendConfig{
 		"save_workers_size":  3,
-		"save_process":       "HeadersParser|Header|Hasher|TelegramBot",
+		"save_process":       "HeadersParser|Header|Hasher|GotifyBot",
 		"log_received_mails": true,
 		"primary_mail_host":  smtpConfig.smtpPrimaryHost,
 	}
 	cfg.BackendConfig = bcfg
 
 	daemon := guerrilla.Daemon{Config: cfg}
-	daemon.AddProcessor("TelegramBot", TelegramBotProcessorFactory(telegramConfig))
+	daemon.AddProcessor("GotifyBot", GotifyBotProcessorFactory(gotifyConfig))
 
 	err := daemon.Start()
 	return daemon, err
 }
 
-func TelegramBotProcessorFactory(
-	telegramConfig *TelegramConfig) func() backends.Decorator {
+func GotifyBotProcessorFactory(
+	gotifyConfig *GofityConfig) func() backends.Decorator {
 	return func() backends.Decorator {
 		// https://github.com/flashmob/go-guerrilla/wiki/Backends,-configuring-and-extending
 
@@ -149,7 +157,7 @@ func TelegramBotProcessorFactory(
 			return backends.ProcessWith(
 				func(e *mail.Envelope, task backends.SelectTask) (backends.Result, error) {
 					if task == backends.TaskSaveMail {
-						err := SendEmailToTelegram(e, telegramConfig)
+						err := SendEmailToGotify(e, gotifyConfig)
 						if err != nil {
 							return backends.NewResult(fmt.Sprintf("554 Error: %s", err)), err
 						}
@@ -162,12 +170,13 @@ func TelegramBotProcessorFactory(
 	}
 }
 
-func SendEmailToTelegram(e *mail.Envelope,
-	telegramConfig *TelegramConfig) error {
+func SendEmailToGotify(e *mail.Envelope,
+	gotifyConfig *GofityConfig) error {
 
-	message := FormatEmail(e, telegramConfig.messageTemplate)
+	title, message := FormatEmail(e,
+		gotifyConfig.titleTemplate, gotifyConfig.messageTemplate)
 
-	for _, chatId := range strings.Split(telegramConfig.telegramChatIds, ",") {
+	for _, appToken := range strings.Split(gotifyConfig.gotifyAPIToken, ",") {
 
 		// Apparently the native golang's http client supports
 		// http, https and socks5 proxies via HTTP_PROXY/HTTPS_PROXY env vars
@@ -176,33 +185,40 @@ func SendEmailToTelegram(e *mail.Envelope,
 		// See: https://golang.org/pkg/net/http/#ProxyFromEnvironment
 		resp, err := http.PostForm(
 			fmt.Sprintf(
-				"%sbot%s/sendMessage?disable_web_page_preview=true",
-				telegramConfig.telegramApiPrefix,
-				telegramConfig.telegramBotToken,
+				"%smessage?token=%s",
+				gotifyConfig.gotifyURL,
+				appToken,
 			),
-			url.Values{"chat_id": {chatId}, "text": {message}},
+			url.Values{
+				"title":    {title},
+				"message":  {message},
+				"priority": {gotifyConfig.gotifyPriority},
+			},
 		)
 
 		if err != nil {
-			return errors.New(SanitizeBotToken(err.Error(), telegramConfig.telegramBotToken))
+			return errors.New(SanitizeBotToken(err.Error(), appToken))
 		}
 		if resp.StatusCode != 200 {
 			body, _ := ioutil.ReadAll(resp.Body)
 			return errors.New(fmt.Sprintf(
-				"Non-200 response from Telegram: (%d) %s",
+				"Non-200 response from Gotify Server: (%d) %s",
 				resp.StatusCode,
-				SanitizeBotToken(EscapeMultiLine(body), telegramConfig.telegramBotToken),
+				SanitizeBotToken(EscapeMultiLine(body), appToken),
 			))
 		}
 	}
 	return nil
 }
 
-func FormatEmail(e *mail.Envelope, messageTemplate string) string {
+func FormatEmail(e *mail.Envelope,
+	titleTemplate string, messageTemplate string) (string, string) {
+
 	reader := e.NewReader()
 	env, err := enmime.ReadEnvelope(reader)
 	if err != nil {
-		return fmt.Sprintf("%s\n\nError occurred during email parsing: %s", e, err)
+		return fmt.Sprintf("smtp-gotify: Could not parse email"),
+			fmt.Sprintf("%s\n\nError occurred during email parsing: %s", e, err)
 	}
 	text := env.Text
 	if text == "" {
@@ -215,7 +231,7 @@ func FormatEmail(e *mail.Envelope, messageTemplate string) string {
 		"{subject}", env.GetHeader("subject"),
 		"{body}", text,
 	)
-	return r.Replace(messageTemplate)
+	return r.Replace(titleTemplate), r.Replace(messageTemplate)
 }
 
 func MapAddresses(a []mail.Address) string {

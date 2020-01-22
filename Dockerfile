@@ -7,13 +7,13 @@ WORKDIR /app
 COPY . .
 
 # The image should be built with
-# --build-arg ST_VERSION=`git describe --tags --always`
-ARG ST_VERSION
-RUN if [ ! -z "$ST_VERSION" ]; then sed -i "s/UNKNOWN_RELEASE/${ST_VERSION}/g" smtp_to_telegram.go; fi
+# --build-arg SG_VERSION=`git describe --tags --always`
+ARG SG_VERSION
+RUN if [ ! -z "$SG_VERSION" ]; then sed -i "s/UNKNOWN_RELEASE/${SG_VERSION}/g" smtp-gotify.go; fi
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
         -ldflags "-s -w" \
-        -a -o smtp_to_telegram
+        -a -o smtp-gotify
 
 
 
@@ -23,11 +23,11 @@ FROM alpine:3.10
 
 RUN apk add --no-cache ca-certificates
 
-COPY --from=builder /app/smtp_to_telegram /smtp_to_telegram
+COPY --from=builder /app/smtp-gotify /smtp-gotify
 
 USER daemon
 
-ENV ST_SMTP_LISTEN "0.0.0.0:2525"
+ENV SG_SMTP_LISTEN "0.0.0.0:2525"
 EXPOSE 2525
 
-ENTRYPOINT ["/smtp_to_telegram"]
+ENTRYPOINT ["/smtp-gotify"]
