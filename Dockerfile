@@ -9,7 +9,7 @@ COPY . .
 # The image should be built with
 # --build-arg SG_VERSION=`git describe --tags --always`
 ARG SG_VERSION
-RUN if [ ! -z "$SG_VERSION" ]; then sed -i "s/UNKNOWN_RELEASE/${SG_VERSION}/>
+RUN if [ ! -z "$SG_VERSION" ]; then sed -i "s/UNKNOWN_RELEASE/${SG_VERSION}/g" smtp-gotify.go; fi
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
         -ldflags "-s -w" \
