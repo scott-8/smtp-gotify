@@ -1,3 +1,5 @@
+# NOTE: This repository is not maintained, please consider using a fork
+
 # SMTP to Gotify
 
 `smtp-gotify` is a small program which listens for SMTP and sends
